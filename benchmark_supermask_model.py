@@ -40,8 +40,7 @@ def load_model_with_supermask(model_name, checkpoint_path, bsr_blocksize=None, d
         for name, module in model.named_modules():
             if isinstance(module, SupermaskLinear):
                 count+=1
-                if count == 1:
-                    module.compile_weight()
+                module.compile_weight()
         
         output1 = model(input)
 
