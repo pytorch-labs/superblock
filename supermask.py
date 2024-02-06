@@ -50,6 +50,7 @@ class SupermaskLinear(nn.Linear):
             self.sparsity = max_sparsity
         self.tile_size = tile_size
         self.weights_compiled = False
+        self.do_bsr = True
         self.scores = nn.Parameter(
             torch.empty(
                 [max(1, int(math.ceil(wn / tile_size))) for wn in self.weight.size()]
@@ -109,6 +110,13 @@ class SupermaskLinear(nn.Linear):
         if not self.weights_compiled:
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift) * subnet
+            # if self.check_sparsity:....
+            if self.do_bsr:
+                try:
+                    w = torch.nn.Parameter(to_bsr(w, self.tile_size))
+                except:
+                    if verbose:
+                        print(f"Unable to convert weight of {self.__name__} with shape {self.weight.shape} to bsr format")
         else:
             w = self.weight
         return F.linear(x, w, self.bias)
