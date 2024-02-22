@@ -17,17 +17,29 @@ uniform_init_01 = False
 # scores_max=1.
 # uniform_init_01 = True
 
-def to_bsr(tensor, blocksize):
-    if tensor.ndim != 2:
-        raise ValueError("to_bsr expects 2D tensor")
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        raise ValueError("Tensor dimensions must be divisible by blocksize")
-    return tensor.to_sparse_bsr(blocksize)
-
 def percentile(t, q):
     """Return the value that is larger than q% of t"""
     k = 1 + round(.01 * float(q) * (t.numel() - 1))
     return t.view(-1).kthvalue(k).values.item()
+
+
+def to_bsr(tensor, blocksize=256):
+    if tensor.ndim != 2:
+        print("Tensor is not 2D, skipping BSR conversion.")
+        return tensor  
+    
+    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
+        print("Tensor dimensions are not divisible by blocksize, skipping BSR conversion.")
+        return tensor  
+    
+    try:
+        converted_tensor = tensor.to_sparse_bsr(blocksize=blocksize)
+        print(f"Converted tensor to BSR format with blocksize: {blocksize}")
+        return converted_tensor 
+    except ValueError as e:
+        print(f"Unable to convert tensor to BSR format: {e}")
+        return tensor 
+
 
 class GetSubnet(torch.autograd.Function):
     """Supermask STE function"""
@@ -56,11 +68,7 @@ class SupermaskLinear(nn.Linear):
             )
             self.sparsity = max_sparsity
         self.tile_size = tile_size
-        self.weights_compiled = False
-        self.check_sparsity = True
-        self.do_bsr = True
-        self.sparsity_logged = False
-        self.bsr_logged = False
+        self.sparsify_weights = False
         self.scores = nn.Parameter(
             torch.empty(
                 [max(1, int(math.ceil(wn / tile_size))) for wn in self.weight.size()]
@@ -110,33 +118,20 @@ class SupermaskLinear(nn.Linear):
                 subnet = torch.narrow(subnet, i, 0, k)
 
         return subnet
-
-    def compile_weight(self):
+    
+    def sparsify_offline(self):
         subnet = self.get_mask()
         self.weight.data = (self.weight*self.scale+self.shift) * subnet
-        self.weights_compiled = True
-        
+        self.sparsify_weights = True
+
     def forward(self, x):
-        if not self.weights_compiled:
+        if not self.sparsify_weights:
             subnet = self.get_mask()
-            w = (self.weight * self.scale + self.shift) * subnet
-            if self.check_sparsity and not self.sparsity_logged:
-                with torch.no_grad():
-                    sparsity = (w == 0).float().mean().item() * 100
-                    print(f"Sparsity of layer '{getattr(self, 'layer_name', 'Unknown')}' weights: {sparsity:.2f}%")
-                    self.sparsity_logged = True
-            if self.do_bsr and not self.bsr_logged:
-                try:
-                    w = torch.nn.Parameter(to_bsr(w, self.tile_size))
-                    print(f"BSR conversion successful for layer '{getattr(self, 'layer_name', 'Unknown')}'")
-                    self.bsr_logged = True
-                except ValueError as e:
-                    print(f"Unable to convert weights of layer '{getattr(self, 'layer_name', 'Unknown')}' to BSR format. Error: {e}")
-                    self.bsr_logged = True
+            w = (self.weight*self.scale+self.shift) * subnet
         else:
             w = self.weight
         return F.linear(x, w, self.bias)
-
+    
 
 class SupermaskConv2d(nn.Conv2d):
     """Supermask class for Conv2d layer"""
@@ -238,7 +233,7 @@ def apply_supermask(
             continue
         if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in n:
             continue
-
+        
         # convert 1x1 convolutions
         if conv1x1_sparsity != 0.0 and isinstance(m, torch.nn.Conv2d) and m.kernel_size == (1, 1):
             new_m = SupermaskConv2d(
