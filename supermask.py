@@ -130,6 +130,7 @@ class SupermaskLinear(nn.Linear):
             w = (self.weight*self.scale+self.shift) * subnet
         else:
             w = self.weight
+        print(f"Running fw with {w.layout}", )
         return F.linear(x, w, self.bias)
     
 
