@@ -27,6 +27,8 @@ def apply_bsr(model):
                 try:
                     module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
                     print(f"Converted {name} to bsr format.")
+                    print("LAYOUT: ", module.weight.layout)
+                    print("BLOCKSIZE: ", module.weight.values().size())
                 except ValueError as e:
                     print(f"Unable to convert weight of {name} to bsr format: {e}")
 
