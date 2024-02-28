@@ -19,8 +19,8 @@ def apply_sparsity(model):
     for name, module in model.named_modules():
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
-            
-            
+
+
 def apply_bsr(model):
     for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear) and "mlp" in name:
@@ -78,15 +78,23 @@ def load_data(valdir, args):
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
             )
+
+        # for META internal
         dataset_test = torchvision.datasets.ImageFolder(
             valdir,
             preprocessing,
         )
+        # for OSS
+        # dataset_test = torchvision.datasets.ImageNet(
+        #     valdir,
+        #     split='val',
+        #     transform=preprocessing
+        # )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
             utils.save_on_master((dataset_test, valdir), cache_path)
-        
+
         print(f"Number of validation images: {len(dataset_test)}")
 
     print("Creating data loaders")
@@ -142,12 +150,12 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
 
 
 def main(args):
-    
+
     utils.init_distributed_mode(args)
     print(args)
-    
+
     device = torch.device(args.device)
-    
+
     # We disable the cudnn benchmarking because it can noticeably affect the accuracy
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
@@ -159,7 +167,7 @@ def main(args):
         dataset_test, batch_size=args.batch_size, sampler=test_sampler, num_workers=args.workers, pin_memory=True
     )
     num_classes = len(dataset_test.classes)
-    
+
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
 
@@ -258,10 +266,10 @@ def get_args_parser(add_help=True):
         help="Use sync batch norm",
         action="store_true",
     )
-    
+
     # Mixed precision training parameters
     parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
-    
+
     # distributed training parameters
     parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
     parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
