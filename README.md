@@ -1,7 +1,7 @@
-model_299.pth: https://drive.google.com/file/d/1GLKWOJYrzfq38I9bCYZ7v7_teTHe9k9o/view?usp=drive_link (this has tile size 64 and 0.8 sparsity)
+model_299.pth: https://drive.google.com/file/d/1GLKWOJYrzfq38I9bCYZ7v7_teTHe9k9o/view?usp=drive_link (ViT_b_16 trained from scratch on ImageNet with tile size 64 and 0.8 sparsity)
 
 ## To Train:
-Refer to TRAINING.md
+Refer to TRAINING.md to train on ImageNet using block sparsity
 
 ## To Evaluate:
 ```
