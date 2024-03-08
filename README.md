@@ -13,6 +13,8 @@ During inference, the binary mask is applied element-wise to the weights, prunin
 ## Setup
 To use SuperBlock, you will need
 * [latest PyTorch Nightly](https://pytorch.org/get-started/locally/)
+
+To train the model or evaluate accuracy, you will need:
 * ImageNet2012 dataset
 
 ## Installation
