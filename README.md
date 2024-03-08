@@ -3,12 +3,16 @@
 SuperBlock combines two techniques for efficient neural network training and inference: Supermask and Block Compressed Sparse Row (BSR)
 
 ### Supermask
-Supermask is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. The mask scores are learned separately from the weights and are thresholded based on a target sparsity level to obtain a binary mask. The mask determines which weigths are kept and which are pruned, and is learned during training.
+Supermask is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. The mask scores are learned separately from the weights and are thresholded based on a target sparsity level to obtain a binary mask. The mask determines which weights are kept and which are pruned, and is learned during training.
 
 During inference, the binary mask is applied element-wise to the weights, pruning the weights that correspond to a 0 in the mask, resulting in a sparse network that can be efficiently computed. 
 
 ### Block compressed Sparse Row Format (BSR)
-***INSERT NICE WORDS ABOUT BSR HERE***
+The BSR format is a sparse matrix representation that stores dense sub-blocks of non-zero elements instead of individual non-zero elements. The matrix is divided into equal-sized blocks, and only the non-zero blocks are stored.
+
+The BSR format is efficient for sparse matrices with a block structure, where non-zero elements tend to cluster in dense sub-blocks. It reduces storage requirements and enables efficient matrix operations on the non-zero blocks.
+
+Currently, the BSR format is optimized for Nvidia A100 GPU(s) only.
 
 ## Setup
 To use SuperBlock, you will need
@@ -49,7 +53,7 @@ To apply supermask, we have the following arguments at our disposal,
     --sparsity-conv
     --sp-conv-tile-size
     ```
-* Skip first transformer layer and/or last linear layer (ViT only):
+* Skip the first transformer layer and/or last linear layer (ViT only):
     ```
     --skip-last-layer-sparsity
     --skip-first-transformer-sparsity
@@ -76,7 +80,7 @@ Instead of training from scratch, if you'd like to use the pretrained Supermask 
 
 ## Evaluation
 
-To run evaluation of a Supermask trained model, you can use [evaluate.py](evaluate.py).
+To run an evaluation of a Supermask-trained model, you can use [evaluate.py](evaluate.py).
 
 * Offline sparsification with BSR:
     ```
