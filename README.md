@@ -86,9 +86,9 @@ To run an evaluation of a Supermask-trained model, you can use [evaluate.py](eva
 
 * Offline sparsification with BSR:
     ```
-    torchrun --nproc_per_node=8 evaluate.py  --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth  --data-path /path/to/imagenet --sparsify-weights --bsr 256
+    torchrun --nproc_per_node=8 evaluate.py  --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth  --data-path /path/to/imagenet --sparsify-weights --bsr 32
     ```
-    This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from model_299.pth, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 256.
+    This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from model_299.pth, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 32. It is recommended to set `--bsr`      the same as tile size.
 
 * Online sparsification without BSR:
   ```
@@ -98,19 +98,25 @@ To run an evaluation of a Supermask-trained model, you can use [evaluate.py](eva
 
 Please refer to the `get_args_parser` function in [evaluate.py](evaluate.py) for a full list of available arguments.
 
-## Results (1xA100)
+## Results (1x A100)
 
-### Tile size=32, sparsity= 0.9, online, bsr=None
-Test:  Total time: 0:02:20
-Test:  Acc@1 0.088 Acc@5 0.540
+* Sparsity= 0.9, Tile Size = 32, Online Sparsification, BSR = None
+  ```
+  Test:  Total time: 0:01:47
+  Test:  Acc@1 76.078 Acc@5 92.654
+  ```
 
-### Tile size=32, sparsity= 0.9, offline, bsr=None
-Test:  Total time: 0:02:14
-Test:  Acc@1 0.088 Acc@5 0.540
+* Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = None
+  ```
+  Test:  Total time: 0:01:45
+  Test:  Acc@1 76.078 Acc@5 92.654
+  ```
 
-### Tile size=32, sparsity= 0.9, offline, bsr=32
-Test:  Total time: 0:01:40
-Test:  Acc@1 0.088 Acc@5 0.540
+* Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = 32
+  ```
+  Test:  Total time: 0:01:18
+  Test:  Acc@1 76.078 Acc@5 92.654
+  ```
 
 
 ## License
