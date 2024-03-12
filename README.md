@@ -86,7 +86,7 @@ To run an evaluation of a Supermask-trained model, you can use [evaluate.py](eva
 
 * Offline sparsification with BSR:
     ```
-    torchrun --nproc_per_node=8 evaluate.py  --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth  --data-path=/path/to/imagenet
+    torchrun --nproc_per_node=8 evaluate.py  --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth  --data-path /path/to/imagenet --sparsify-weights --bsr 256
     ```
     This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from model_299.pth, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 256.
 
