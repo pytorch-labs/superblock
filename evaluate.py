@@ -1,4 +1,5 @@
 import os
+import time
 import sys
 import warnings
 import hashlib
@@ -64,13 +65,19 @@ def load_data(valdir, args):
     )
     interpolation = InterpolationMode(args.interpolation)
 
-    print("Loading validation data")
-    cache_path = _get_cache_path(valdir)
-    if args.cache_dataset and os.path.exists(cache_path):
+    print(f"Loading validation data from {valdir}")
+    if valdir is not None:
+        cache_path = _get_cache_path(valdir)
+
+    if valdir is None:
+        # 1 MILLION datapoints! HA! HA! HA!
+        dataset_test = 1000 * 1000 * [(torch.randn(3, 224, 224), torch.tensor(1))]
+
+    if valdir is not None and (args.cache_dataset and os.path.exists(cache_path)):
         # Attention, as the transforms are also cached!
         print(f"Loading dataset_test from {cache_path}")
         dataset_test, _ = torch.load(cache_path)
-    else:
+    elif valdir is not None:
         if args.weights:
             weights = torchvision.models.get_weight(args.weights)
             preprocessing = weights.transforms()
@@ -108,13 +115,18 @@ def load_data(valdir, args):
 
 def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="", args=None):
     model.eval()
+    # model = torch.compile(model, mode='max-autotune')
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = f"Test: {log_suffix}"
 
+    t1, t0 = time.time(), time.time()
     num_processed_samples = 0
     with torch.no_grad():
-        for image, target in metric_logger.log_every(data_loader, print_freq, header):
-            image = image.to(device, non_blocking=True)
+        # for image, target in metric_logger.log_every(data_loader, print_freq, header):
+        for i, (image, target) in enumerate(data_loader):
+            t1, t0 = time.time(), t1
+            print(f"i: {i:4d} - {int((t1 - t0)*1000):4d}ms")
+            image = image.to(device, non_blocking=True, dtype=torch.bfloat16)
             target = target.to(device, non_blocking=True)
             output = model(image)
             loss = criterion(output, target)
@@ -161,12 +173,13 @@ def main(args):
     torch.backends.cudnn.deterministic = True
 
     val_dir = os.path.join(args.data_path, "val")
+    val_dir = None
     dataset_test, test_sampler = load_data(val_dir, args)
 
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=args.batch_size, sampler=test_sampler, num_workers=args.workers, pin_memory=True
     )
-    num_classes = len(dataset_test.classes)
+    num_classes = 1000 if val_dir is None else len(dataset_test.classes)
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
@@ -222,6 +235,7 @@ def main(args):
         except FileNotFoundError:
             print(f"No checkpoint found at {args.weights_path}. Starting training from scratch.")
 
+    model = model.to(torch.bfloat16)
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
     if args.sparsify_weights:
