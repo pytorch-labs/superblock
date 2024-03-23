@@ -125,8 +125,8 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
         # for image, target in metric_logger.log_every(data_loader, print_freq, header):
         for i, (image, target) in enumerate(data_loader):
             t1, t0 = time.time(), t1
-            print(f"i: {i:4d} - {int((t1 - t0)*1000):4d}ms")
-            image = image.to(device, non_blocking=True, dtype=torch.bfloat16)
+            print(f"i: {i:4d} - {int((t1 - t0)*1000):8d}ms", end='\r')
+            image = image.to(device, non_blocking=True, dtype=torch.bfloat16 if args.bfloat16 else None)
             target = target.to(device, non_blocking=True)
             output = model(image)
             loss = criterion(output, target)
@@ -235,7 +235,9 @@ def main(args):
         except FileNotFoundError:
             print(f"No checkpoint found at {args.weights_path}. Starting training from scratch.")
 
-    model = model.to(torch.bfloat16)
+    if args.bfloat16:
+        print("Using bfloat16")
+        model = model.to(torch.bfloat16)
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
     if args.sparsify_weights:
@@ -246,7 +248,7 @@ def main(args):
     if model_ema:
         evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA", args=args)
     else:
-        evaluate(model, criterion, data_loader_test, device=device)
+        evaluate(model, criterion, data_loader_test, device=device, args=args)
     return
 
 
@@ -325,6 +327,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
     parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
+    parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
 
     return parser
 
