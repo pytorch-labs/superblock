@@ -70,8 +70,11 @@ def load_data(valdir, args):
         cache_path = _get_cache_path(valdir)
 
     if valdir is None:
-        # 1 MILLION datapoints! HA! HA! HA!
+        # # ONE HUNDRED THOUSAND datapoints! HA! HA! HA!
+        # dataset_test = 100 * 1000 * [(torch.randn(3, 224, 224), torch.tensor(1))]
+        # ONE MILLION! datapoints! HA! HA! HA!
         dataset_test = 1000 * 1000 * [(torch.randn(3, 224, 224), torch.tensor(1))]
+        print(f"Using artificial data with {len(dataset_test)} datapoints.")
 
     if valdir is not None and (args.cache_dataset and os.path.exists(cache_path)):
         # Attention, as the transforms are also cached!
