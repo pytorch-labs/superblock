@@ -3,14 +3,13 @@ import time
 import sys
 import warnings
 import hashlib
+import torchvision
 
 import presets
 import torch
 import torch.utils.data
-import torchvision
 import utils
 from torch import nn
-from torchvision.transforms.functional import InterpolationMode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
@@ -49,13 +48,6 @@ def verify_sparsity(model):
             print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
 
 
-def _get_cache_path(filepath):
-    h = hashlib.sha1(filepath.encode()).hexdigest()
-    cache_path = os.path.join("~", ".torch", "vision", "datasets", "imagefolder", h[:10] + ".pt")
-    cache_path = os.path.expanduser(cache_path)
-    return cache_path
-
-
 def benchmark_in_ms(warmup, iters, f, *args, **kwargs):
     for _ in range(warmup):
         f(*args, **kwargs)
@@ -74,18 +66,15 @@ def benchmark_in_ms(warmup, iters, f, *args, **kwargs):
 
 def main(args):
     print(args)
-
     device = torch.device(args.device)
 
     # We disable the cudnn benchmarking because it can noticeably affect the accuracy
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-
     num_classes = 1000
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
-
     apply_supermask(
         model,
         linear_sparsity=args.sparsity_linear,
@@ -99,24 +88,9 @@ def main(args):
         device=device,
         verbose=True,
     )
-
     model.to(device)
-
     scaler = torch.cuda.amp.GradScaler() if args.amp else None
-
     model_without_ddp = model
-    model_ema = None
-    if args.model_ema:
-        # Decay adjustment that aims to keep the decay independent from other hyper-parameters originally proposed at:
-        # https://github.com/facebookresearch/pycls/blob/f8cd9627/pycls/core/net.py#L123
-        #
-        # total_ema_updates = (Dataset_size / n_GPUs) * epochs / (batch_size_per_gpu * EMA_steps)
-        # We consider constant = Dataset_size for a given dataset/setup and ommit it. Thus:
-        # adjust = 1 / total_ema_updates ~= n_GPUs * batch_size_per_gpu * EMA_steps / epochs
-        adjust = args.world_size * args.batch_size * args.model_ema_steps / args.epochs
-        alpha = 1.0 - args.model_ema_decay
-        alpha = min(1.0, alpha * adjust)
-        model_ema = utils.ExponentialMovingAverage(model_without_ddp, device=device, decay=1.0 - alpha)
 
     if args.bfloat16:
         print("Using bfloat16")
@@ -128,11 +102,9 @@ def main(args):
         verify_sparsity(model)
         if args.bsr:
             apply_bsr(model)
-    image = torch.empty(args.batch_size, 3, 224, 224, dtype=torch.bfloat16, device=device)
-    if model_ema:
-        print(benchmark_in_ms(10, 100, model_ema, image))
-    else:
-        print(benchmark_in_ms(10, 100, model, image))
+    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
+    # model = torch.compile(model, mode='max-autotune')
+    print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)
     return
 
 
@@ -145,20 +117,6 @@ def get_args_parser(add_help=True):
     parser.add_argument(
         "-b", "--batch-size", default=32, type=int, help="images per gpu, the total batch size is $NGPU x batch_size"
     )
-    parser.add_argument("--epochs", default=90, type=int, metavar="N", help="number of total epochs to run")
-    parser.add_argument(
-        "-j", "--workers", default=16, type=int, metavar="N", help="number of data loading workers (default: 16)"
-    )
-    parser.add_argument(
-        "--label-smoothing", default=0.0, type=float, help="label smoothing (default: 0.0)", dest="label_smoothing"
-    )
-    parser.add_argument("--print-freq", default=10, type=int, help="print frequency")
-    parser.add_argument(
-        "--cache-dataset",
-        dest="cache_dataset",
-        help="Cache the datasets for quicker initialization. It also serializes the transforms",
-        action="store_true",
-    )
     parser.add_argument(
         "--sync-bn",
         dest="sync_bn",
@@ -169,27 +127,6 @@ def get_args_parser(add_help=True):
     # Mixed precision training parameters
     parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
 
-    parser.add_argument(
-        "--model-ema", action="store_true", help="enable tracking Exponential Moving Average of model parameters"
-    )
-    parser.add_argument(
-        "--model-ema-steps",
-        type=int,
-        default=32,
-        help="the number of iterations that controls how often to update the EMA model (default: 32)",
-    )
-    parser.add_argument(
-        "--model-ema-decay",
-        type=float,
-        default=0.99998,
-        help="decay factor for Exponential Moving Average of model parameters (default: 0.99998)",
-    )
-    parser.add_argument(
-        "--interpolation", default="bilinear", type=str, help="the interpolation method (default: bilinear)"
-    )
-    parser.add_argument(
-        "--val-resize-size", default=256, type=int, help="the resize size used for validation (default: 256)"
-    )
     parser.add_argument(
         "--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)"
     )
