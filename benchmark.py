@@ -1,5 +1,4 @@
 import os
-import functools
 import time
 import sys
 import warnings
@@ -24,8 +23,12 @@ def apply_sparsity(model):
 
 def apply_bsr(model):
     for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Linear) and "mlp" in name:
-            module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
+            if isinstance(module, torch.nn.Linear) and "mlp" in name:
+                try:
+                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
+                    print(f"Converted {name} to bsr format.")
+                except ValueError as e:
+                    print(f"Unable to convert weight of {name} to bsr format: {e}")
 
 
 def to_bsr(tensor, blocksize):
@@ -86,39 +89,48 @@ def main(args):
             device=device,
             verbose=True,
         )
-    assert args.sparsity_conv1x1 == 0
-    assert args.sparsity_conv == 0
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
-    model_without_ddp = model
-    model.to(device)
-    if args.bfloat16:
-        print("Using bfloat16")
-        model = model.to(torch.bfloat16)
-    apply_supermask_ts(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        verbose=True,
-    )
+        model.to(device)
+        scaler = torch.cuda.amp.GradScaler() if args.amp else None
+        model_without_ddp = model
+        if args.bfloat16:
+            print("Using bfloat16")
+            model = model.to(torch.bfloat16)
+    else:
+        model.to(device)
+        scaler = torch.cuda.amp.GradScaler() if args.amp else None
+        model_without_ddp = model
+        if args.bfloat16:
+            print("Using bfloat16")
+            model = model.to(torch.bfloat16)
+        assert args.sparsity_conv1x1 == 0
+        assert args.sparsity_conv == 0
+        apply_supermask_ts(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            verbose=True,
+        )
 
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
-    # if args.sparsify_weights:
-    #     apply_sparsity(model)
-    #     verify_sparsity(model)
-    #     if args.bsr:
-    #         apply_bsr(model)
-    if args.sparsify_weights:
-        apply_sparsity(model)
-        # verify_sparsity(model)
-        if args.bsr:
-            print("0 ---")
-            apply_bsr(model)
-            print("1 ---")
-            apply_bsr(model)
-            print("2 ---")
+    if not args.use_ts:
+        if args.sparsify_weights:
+            apply_sparsity(model)
+            verify_sparsity(model)
+            if args.bsr:
+                apply_bsr(model)
+    else:
+        if args.sparsify_weights:
+            apply_sparsity(model)
+            # verify_sparsity(model)
+            if args.bsr:
+                print("0 ---")
+                apply_bsr(model)
+                print("1 ---")
+                apply_bsr(model)
+                print("2 ---")
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
     # model = torch.compile(model, mode='max-autotune')
     print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)
