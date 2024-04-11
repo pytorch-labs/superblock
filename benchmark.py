@@ -22,16 +22,23 @@ def apply_sparsity(model):
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
 
+def set_parameter(model, name, param):
+    if '.' in name:
+        names = name.split('.')
+        set_parameter(getattr(model, names[0]), '.'.join(names[1:]), param)
+    else:
+        setattr(model, name, param)
+
 
 def apply_bsr(model):
     for name, param in model.named_parameters():
         if isinstance(param, SupermaskTensor):
             try:
-                setattr(model, name, to_bsr(param.data, args.bsr))
+                set_parameter(model, name, torch.nn.Parameter(to_bsr(param.data, args.bsr)))
                 print(f"Converted SupermaskTensor {name} to bsr format.")
             except ValueError:
                 # Fall back to  strided
-                setattr(model, name, param.data.to_strided())
+                set_parameter(model, name, torch.nn.Parameter(param.data.to_strided()))
                 print(f"Converted SupermaskTensor {name} to strided format.")
     # for name, module in model.named_modules():
     #     if isinstance(module, torch.nn.Linear) and "mlp" in name:
@@ -123,7 +130,11 @@ def main(args):
         apply_sparsity(model)
         # verify_sparsity(model)
         if args.bsr:
+            print("0 ---")
             apply_bsr(model)
+            print("1 ---")
+            apply_bsr(model)
+            print("2 ---")
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
     # model = torch.compile(model, mode='max-autotune')
     print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)

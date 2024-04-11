@@ -6,6 +6,59 @@ import torch.nn.functional as F
 from scipy.linalg import hadamard
 import numpy as np
 
+def _replace_with_custom_fn_if_matches_filter(
+    model,
+    replacement_fn,
+    filter_fn,
+    cur_fqn="",
+) -> None:
+    """
+    For each `child` in `model`, replaces it with `replacement_fn(child)`
+    if `filter_fn(child)` is `True`
+    """
+    if filter_fn(model, cur_fqn[:-1]):
+        model = replacement_fn(model)
+        return model
+    else:
+        for name, child in model.named_children():
+            new_child = _replace_with_custom_fn_if_matches_filter(
+                child, replacement_fn, filter_fn, f"{cur_fqn}{name}."
+            )
+            if new_child is not child:
+                setattr(model, name, new_child)
+        return model
+
+def swap_conv2d_1x1_to_linear(model, filter_fn=None):
+    """
+    Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
+    """
+
+    class PermuteSandwich(torch.nn.Module):
+        def __init__(self, mod):
+            super().__init__()
+            self.mod = mod
+
+        def forward(self, *args):
+            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
+
+    def replace_conv2d_1x1(conv):
+        assert conv.kernel_size == (1, 1)
+        lin = torch.nn.Linear(
+            conv.in_channels, conv.out_channels, bias=(conv.bias is None)
+        )
+        lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
+        lin.bias = conv.bias
+        return PermuteSandwich(lin)
+
+    if filter_fn is None:
+        filter_fn = lambda mod, *args: isinstance(
+            mod, torch.nn.Conv2d
+        ) and mod.kernel_size == (1, 1)
+
+    _replace_with_custom_fn_if_matches_filter(
+        model, replace_conv2d_1x1, filter_fn=filter_fn
+    )
+
 
 # original supermask
 scores_min=None
@@ -144,14 +197,14 @@ def to_supermask_tensor(weight, sparsity, fixed_mask, fixed_weight, bitwidth, tr
             f"(maximum sparsity for layer with shape {weight.size()} and tile size {tile_size})"
         )
         sparsity = max_sparsity
-    scores = torch.empty([max(1, int(math.ceil(wn / tile_size))) for wn in weight.size()], device=weight.device)
+    scores = torch.empty([max(1, int(math.ceil(wn / tile_size))) for wn in weight.size()], device=weight.device, dtype=weight.dtype)
     nn.init.uniform_(scores) if uniform_init_01 else nn.init.kaiming_uniform_(scores, a=math.sqrt(5))
 
     # the shift and the scale are transformation parameters 
     # the actually used weights = self.weight*self.scale+self.shift
     # the transformation is activated only for quantized weights
-    shift = torch.tensor([0.], requires_grad=False, device=weight.device)
-    scale = torch.tensor([1.], requires_grad=False, device=weight.device)
+    shift = torch.tensor([0.], requires_grad=False, device=weight.device, dtype=weight.dtype)
+    scale = torch.tensor([1.], requires_grad=False, device=weight.device, dtype=weight.dtype)
 
     assert bitwidth is None
 
@@ -172,6 +225,7 @@ def apply_supermask_ts(
     skip_first_transformer_sparsity=False,
     verbose=False,
 ):
+    swap_conv2d_1x1_to_linear(model)
     for n, m in model.named_modules():
         if linear_sparsity != 0.0 and isinstance(m, torch.nn.Linear):
             m.weight = torch.nn.Parameter(to_supermask_tensor(m.weight,
@@ -182,6 +236,17 @@ def apply_supermask_ts(
                 None,
                 None,
                 linear_sp_tilesize))
+        if linear_sparsity != 0.0 and isinstance(m, torch.nn.MultiheadAttention):
+            assert m._qkv_same_embed_dim
+            m.in_proj_weight = torch.nn.Parameter(to_supermask_tensor(m.in_proj_weight,
+                linear_sparsity,
+                False,
+                False,
+                None,
+                None,
+                None,
+                linear_sp_tilesize))
+
 
 
 class SupermaskLinear(nn.Linear):
