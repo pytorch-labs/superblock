@@ -14,13 +14,13 @@ def set_parameter(model, name, param):
         setattr(model, name, param)
 
 
-def apply_bsr(model):
+def apply_bsr_ts(model, blocksize):
     for name, param in model.named_parameters():
         if isinstance(param, SupermaskTensor):
             try:
-                set_parameter(model, name, torch.nn.Parameter(to_bsr(param.data, args.bsr)))
+                set_parameter(model, name, torch.nn.Parameter(param.data.to_sparse_bsr(blocksize)))
                 print(f"Converted SupermaskTensor {name} to bsr format.")
-            except ValueError:
+            except RuntimeError:
                 # Fall back to  strided
                 set_parameter(model, name, torch.nn.Parameter(param.data.to_strided()))
                 print(f"Converted SupermaskTensor {name} to strided format.")

@@ -13,7 +13,7 @@ from torch import nn
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-from supermask_ts import apply_supermask_ts, SupermaskTensor
+from supermask_ts import apply_supermask_ts, SupermaskTensor, apply_bsr_ts
 
 
 def apply_sparsity(model):
@@ -124,13 +124,12 @@ def main(args):
                 apply_bsr(model)
     else:
         if args.sparsify_weights:
-            apply_sparsity(model)
             # verify_sparsity(model)
             if args.bsr:
                 print("0 ---")
-                apply_bsr(model)
+                apply_bsr_ts(model, args.bsr)
                 print("1 ---")
-                apply_bsr(model)
+                apply_bsr_ts(model, args.bsr)
                 print("2 ---")
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
     # model = torch.compile(model, mode='max-autotune')
@@ -174,6 +173,7 @@ def get_args_parser(add_help=True):
     parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
+    parser.add_argument("--use-ts", action="store_true", help="Use Tensor subclass")
 
     return parser
 
