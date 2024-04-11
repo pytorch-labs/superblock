@@ -25,6 +25,19 @@ def apply_bsr_ts(model, blocksize):
                 set_parameter(model, name, torch.nn.Parameter(param.data.to_strided()))
                 print(f"Converted SupermaskTensor {name} to strided format.")
 
+def verify_sparsity_ts(model):
+    for name, param in model.named_parameters():
+        if isinstance(param, SupermaskTensor):
+            total_weights = param.to_strided().numel()
+            sparse_weights = (param.to_strided() == 0).sum().item()
+            sparsity_percentage = (sparse_weights / total_weights) * 100
+            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
+
+def verify_sparsity_ts_bsr(model):
+    for name, param in model.named_parameters():
+        if param.layout == torch.sparse_bsr:
+            print(f"ratio: {param.values().numel() / param.numel()}")
+
 def _replace_with_custom_fn_if_matches_filter(
     model,
     replacement_fn,
@@ -246,6 +259,11 @@ def apply_supermask_ts(
 ):
     swap_conv2d_1x1_to_linear(model)
     for n, m in model.named_modules():
+        # check conditions for skipping sparsity
+        if skip_last_layer_sparsity and n == "heads.head":
+            continue
+        if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in n:
+            continue
         if linear_sparsity != 0.0 and isinstance(m, torch.nn.Linear):
             m.weight = torch.nn.Parameter(to_supermask_tensor(m.weight,
                 linear_sparsity,

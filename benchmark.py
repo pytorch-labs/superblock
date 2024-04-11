@@ -13,7 +13,7 @@ from torch import nn
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-from supermask_ts import apply_supermask_ts, SupermaskTensor, apply_bsr_ts
+from supermask_ts import apply_supermask_ts, SupermaskTensor, apply_bsr_ts, verify_sparsity_ts, verify_sparsity_ts_bsr
 
 
 def apply_sparsity(model):
@@ -124,17 +124,25 @@ def main(args):
                 apply_bsr(model)
     else:
         if args.sparsify_weights:
-            # verify_sparsity(model)
+            verify_sparsity_ts(model)
             if args.bsr:
                 print("0 ---")
                 apply_bsr_ts(model, args.bsr)
                 print("1 ---")
                 apply_bsr_ts(model, args.bsr)
                 print("2 ---")
+                verify_sparsity_ts_bsr(model)
+                print("3 ---")
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
-    # model = torch.compile(model, mode='max-autotune')
-    print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)
-    return
+    with torch.no_grad():
+        # model = torch.compile(model, mode='max-autotune')
+        ms = benchmark_in_ms(10, 100, model, image)
+        max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+        _, total_memory = torch.cuda.mem_get_info()
+        max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+        max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+        print(f"{ms}ms {max_memory_allocated_bytes}MB of RAM, {max_memory_allocated_percentage}% of RAM", file=sys.stderr)
+        return
 
 
 def get_args_parser(add_help=True):
