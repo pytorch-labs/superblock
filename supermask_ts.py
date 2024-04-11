@@ -6,6 +6,25 @@ import torch.nn.functional as F
 from scipy.linalg import hadamard
 import numpy as np
 
+def set_parameter(model, name, param):
+    if '.' in name:
+        names = name.split('.')
+        set_parameter(getattr(model, names[0]), '.'.join(names[1:]), param)
+    else:
+        setattr(model, name, param)
+
+
+def apply_bsr(model):
+    for name, param in model.named_parameters():
+        if isinstance(param, SupermaskTensor):
+            try:
+                set_parameter(model, name, torch.nn.Parameter(to_bsr(param.data, args.bsr)))
+                print(f"Converted SupermaskTensor {name} to bsr format.")
+            except ValueError:
+                # Fall back to  strided
+                set_parameter(model, name, torch.nn.Parameter(param.data.to_strided()))
+                print(f"Converted SupermaskTensor {name} to strided format.")
+
 def _replace_with_custom_fn_if_matches_filter(
     model,
     replacement_fn,

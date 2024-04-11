@@ -22,27 +22,10 @@ def apply_sparsity(model):
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
 
-def set_parameter(model, name, param):
-    if '.' in name:
-        names = name.split('.')
-        set_parameter(getattr(model, names[0]), '.'.join(names[1:]), param)
-    else:
-        setattr(model, name, param)
-
-
 def apply_bsr(model):
-    for name, param in model.named_parameters():
-        if isinstance(param, SupermaskTensor):
-            try:
-                set_parameter(model, name, torch.nn.Parameter(to_bsr(param.data, args.bsr)))
-                print(f"Converted SupermaskTensor {name} to bsr format.")
-            except ValueError:
-                # Fall back to  strided
-                set_parameter(model, name, torch.nn.Parameter(param.data.to_strided()))
-                print(f"Converted SupermaskTensor {name} to strided format.")
-    # for name, module in model.named_modules():
-    #     if isinstance(module, torch.nn.Linear) and "mlp" in name:
-    #         module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear) and "mlp" in name:
+            module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
 
 
 def to_bsr(tensor, blocksize):
@@ -89,19 +72,20 @@ def main(args):
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
-    # apply_supermask(
-    #     model,
-    #     linear_sparsity=args.sparsity_linear,
-    #     linear_sp_tilesize=args.sp_linear_tile_size,
-    #     conv1x1_sparsity=args.sparsity_conv1x1,
-    #     conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-    #     conv_sparsity=args.sparsity_conv,
-    #     conv_sp_tilesize=args.sp_conv_tile_size,
-    #     skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-    #     skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-    #     device=device,
-    #     verbose=True,
-    # )
+    if not args.use_ts:
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=device,
+            verbose=True,
+        )
     assert args.sparsity_conv1x1 == 0
     assert args.sparsity_conv == 0
     scaler = torch.cuda.amp.GradScaler() if args.amp else None
