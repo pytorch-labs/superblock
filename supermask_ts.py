@@ -38,60 +38,6 @@ def verify_sparsity_ts_bsr(model):
         if param.layout == torch.sparse_bsr:
             print(f"ratio: {param.values().numel() / param.numel()}")
 
-def _replace_with_custom_fn_if_matches_filter(
-    model,
-    replacement_fn,
-    filter_fn,
-    cur_fqn="",
-) -> None:
-    """
-    For each `child` in `model`, replaces it with `replacement_fn(child)`
-    if `filter_fn(child)` is `True`
-    """
-    if filter_fn(model, cur_fqn[:-1]):
-        model = replacement_fn(model)
-        return model
-    else:
-        for name, child in model.named_children():
-            new_child = _replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, f"{cur_fqn}{name}."
-            )
-            if new_child is not child:
-                setattr(model, name, new_child)
-        return model
-
-def swap_conv2d_1x1_to_linear(model, filter_fn=None):
-    """
-    Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
-    """
-
-    class PermuteSandwich(torch.nn.Module):
-        def __init__(self, mod):
-            super().__init__()
-            self.mod = mod
-
-        def forward(self, *args):
-            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
-
-    def replace_conv2d_1x1(conv):
-        assert conv.kernel_size == (1, 1)
-        lin = torch.nn.Linear(
-            conv.in_channels, conv.out_channels, bias=(conv.bias is None)
-        )
-        lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
-        lin.bias = conv.bias
-        return PermuteSandwich(lin)
-
-    if filter_fn is None:
-        filter_fn = lambda mod, *args: isinstance(
-            mod, torch.nn.Conv2d
-        ) and mod.kernel_size == (1, 1)
-
-    _replace_with_custom_fn_if_matches_filter(
-        model, replace_conv2d_1x1, filter_fn=filter_fn
-    )
-
-
 # original supermask
 scores_min=None
 scores_max=9e9
@@ -257,7 +203,6 @@ def apply_supermask_ts(
     skip_first_transformer_sparsity=False,
     verbose=False,
 ):
-    swap_conv2d_1x1_to_linear(model)
     for n, m in model.named_modules():
         # check conditions for skipping sparsity
         if skip_last_layer_sparsity and n == "heads.head":
