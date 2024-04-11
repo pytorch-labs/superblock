@@ -21,6 +21,7 @@ def apply_sparsity(model):
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
 
+
 def apply_bsr(model):
     for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear) and "mlp" in name:
