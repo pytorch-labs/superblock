@@ -1,4 +1,5 @@
 import os
+import functools
 import time
 import sys
 import warnings
@@ -13,6 +14,7 @@ from torch import nn
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
+from supermask_ts import apply_supermask_ts, SupermaskTensor
 
 
 def apply_sparsity(model):
@@ -22,13 +24,18 @@ def apply_sparsity(model):
 
 
 def apply_bsr(model):
-    for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear) and "mlp" in name:
-                try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
+    for name, param in model.named_parameters():
+        if isinstance(param, SupermaskTensor):
+            try:
+                setattr(model, name, to_bsr(param.data, args.bsr))
+                print(f"Converted SupermaskTensor {name} to bsr format.")
+            except ValueError:
+                # Fall back to  strided
+                setattr(model, name, param.data.to_strided())
+                print(f"Converted SupermaskTensor {name} to strided format.")
+    # for name, module in model.named_modules():
+    #     if isinstance(module, torch.nn.Linear) and "mlp" in name:
+    #         module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
 
 
 def to_bsr(tensor, blocksize):
@@ -75,31 +82,46 @@ def main(args):
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=True,
-    )
-    model.to(device)
+    # apply_supermask(
+    #     model,
+    #     linear_sparsity=args.sparsity_linear,
+    #     linear_sp_tilesize=args.sp_linear_tile_size,
+    #     conv1x1_sparsity=args.sparsity_conv1x1,
+    #     conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+    #     conv_sparsity=args.sparsity_conv,
+    #     conv_sp_tilesize=args.sp_conv_tile_size,
+    #     skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+    #     skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+    #     device=device,
+    #     verbose=True,
+    # )
+    assert args.sparsity_conv1x1 == 0
+    assert args.sparsity_conv == 0
     scaler = torch.cuda.amp.GradScaler() if args.amp else None
     model_without_ddp = model
-
+    model.to(device)
     if args.bfloat16:
         print("Using bfloat16")
         model = model.to(torch.bfloat16)
+    apply_supermask_ts(
+        model,
+        linear_sparsity=args.sparsity_linear,
+        linear_sp_tilesize=args.sp_linear_tile_size,
+        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+        verbose=True,
+    )
+
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
+    # if args.sparsify_weights:
+    #     apply_sparsity(model)
+    #     verify_sparsity(model)
+    #     if args.bsr:
+    #         apply_bsr(model)
     if args.sparsify_weights:
         apply_sparsity(model)
-        verify_sparsity(model)
+        # verify_sparsity(model)
         if args.bsr:
             apply_bsr(model)
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
