@@ -36,7 +36,7 @@ def verify_sparsity_ts(model):
 def verify_sparsity_ts_bsr(model):
     for name, param in model.named_parameters():
         if param.layout == torch.sparse_bsr:
-            print(f"ratio: {param.values().numel() / param.numel()}")
+            print(f"{name} ratio: {param.values().numel() / param.numel()}")
 
 # original supermask
 scores_min=None
@@ -219,6 +219,7 @@ def apply_supermask_ts(
                 None,
                 linear_sp_tilesize))
         if linear_sparsity != 0.0 and isinstance(m, torch.nn.MultiheadAttention):
+            # continue
             assert m._qkv_same_embed_dim
             m.in_proj_weight = torch.nn.Parameter(to_supermask_tensor(m.in_proj_weight,
                 linear_sparsity,
