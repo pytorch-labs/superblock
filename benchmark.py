@@ -13,6 +13,7 @@ from torch import nn
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
+from supermask_ts import apply_supermask_ts, SupermaskTensor, apply_bsr_ts, verify_sparsity_ts, verify_sparsity_ts_bsr
 
 
 def apply_sparsity(model):
@@ -75,37 +76,73 @@ def main(args):
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=True,
-    )
-    model.to(device)
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
-    model_without_ddp = model
+    if not args.use_ts:
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=device,
+            verbose=True,
+        )
+        model.to(device)
+        scaler = torch.cuda.amp.GradScaler() if args.amp else None
+        model_without_ddp = model
+        if args.bfloat16:
+            print("Using bfloat16")
+            model = model.to(torch.bfloat16)
+    else:
+        model.to(device)
+        scaler = torch.cuda.amp.GradScaler() if args.amp else None
+        model_without_ddp = model
+        if args.bfloat16:
+            print("Using bfloat16")
+            model = model.to(torch.bfloat16)
+        assert args.sparsity_conv1x1 == 0
+        assert args.sparsity_conv == 0
+        apply_supermask_ts(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            verbose=True,
+        )
 
-    if args.bfloat16:
-        print("Using bfloat16")
-        model = model.to(torch.bfloat16)
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
-    if args.sparsify_weights:
-        apply_sparsity(model)
-        verify_sparsity(model)
-        if args.bsr:
-            apply_bsr(model)
+    if not args.use_ts:
+        if args.sparsify_weights:
+            apply_sparsity(model)
+            verify_sparsity(model)
+            if args.bsr:
+                apply_bsr(model)
+    else:
+        if args.sparsify_weights:
+            verify_sparsity_ts(model)
+            if args.bsr:
+                print("0 ---")
+                apply_bsr_ts(model, args.bsr)
+                print("1 ---")
+                apply_bsr_ts(model, args.bsr)
+                print("2 ---")
+                verify_sparsity_ts_bsr(model)
+                print("3 ---")
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
-    # model = torch.compile(model, mode='max-autotune')
-    print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)
-    return
+    with torch.no_grad():
+        # model = torch.compile(model, mode='max-autotune')
+        ms = benchmark_in_ms(10, 100, model, image)
+        max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+        _, total_memory = torch.cuda.mem_get_info()
+        max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+        max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+        print(f"{ms}ms {max_memory_allocated_bytes}MB of RAM, {max_memory_allocated_percentage}% of RAM", file=sys.stderr)
+        return
 
 
 def get_args_parser(add_help=True):
@@ -144,6 +181,7 @@ def get_args_parser(add_help=True):
     parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
+    parser.add_argument("--use-ts", action="store_true", help="Use Tensor subclass")
 
     return parser
 
