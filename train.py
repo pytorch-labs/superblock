@@ -19,9 +19,14 @@ from torchvision.transforms.functional import InterpolationMode
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
 
+torch.set_num_threads(1)
+
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
+    # model.module = torch.compile(model.module, mode='reduce-overhead')
+    # model = torch.compile(model, mode='max-autotune-no-cudagraphs')
+    model = torch.compile(model)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
     metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
@@ -31,10 +36,10 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
 
     for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         start_time = time.time()
-        image, target = image.to(device), target.to(device)
+        image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast(enabled=scaler is not None):
-            output = model(image)
+            output = model(image.to(torch.bfloat16)).to(torch.float32)
             loss = criterion(output, target) / args.accumulation_steps  # Scale loss
 
         if scaler is not None:
@@ -112,9 +117,9 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     num_processed_samples = 0
     with torch.inference_mode():
         for image, target in metric_logger.log_every(data_loader, print_freq, header):
-            image = image.to(device, non_blocking=True)
+            image = image.to(device, non_blocking=True).to(torch.bfloat16)
             target = target.to(device, non_blocking=True)
-            output = model(image)
+            output = model(image).to(torch.float32)
             loss = criterion(output, target)
 
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
@@ -304,6 +309,7 @@ def main(args):
         verbose=True,
     )
 
+    model = model.to(torch.bfloat16)
     model.to(device)
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -337,7 +343,7 @@ def main(args):
             parameters, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay, eps=0.0316, alpha=0.9
         )
     elif opt_name == "adamw":
-        optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay)
+        optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay, fused=True)
     else:
         raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop and AdamW are supported.")
 
