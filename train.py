@@ -21,12 +21,24 @@ from supermask import apply_supermask, SupermaskLinear
 
 torch.set_num_threads(1)
 
+from spdl.dataloader._task_runner import BackgroundTaskProcessor
+from sdpl_data import _get_batch_generator
 
-def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
+
+def train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None, ):
     model.train()
     # model.module = torch.compile(model.module, mode='reduce-overhead')
     # model = torch.compile(model, mode='max-autotune-no-cudagraphs')
-    model = torch.compile(model)
+    # model = torch.compile(model)
+    model = torch.compile(model, mode='max-autotune')
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
     metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
@@ -34,46 +46,76 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
     header = f"Epoch: [{epoch}]"
     accumulation_counter = 0  # Counter for tracking accumulated gradients
 
-    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        start_time = time.time()
-        image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
+    # for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+    # We can afford a sync for an accurate time across an entire epoch.
+    torch.cuda.synchronize()
+    start_time = time.time()
+    for i, (image, target) in enumerate(data_loader):
+        with torch.autograd.profiler.record_function("data transfer"):
+            # image = data[0]
+            # target = data[1]
+            # import pdb; pdb.set_trace()
+            # image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
+            image, target = mixupcutmix(image, target)
+            # import pdb; pdb.set_trace()
+            # print("HEE")
 
         with torch.cuda.amp.autocast(enabled=scaler is not None):
-            output = model(image.to(torch.bfloat16)).to(torch.float32)
-            loss = criterion(output, target) / args.accumulation_steps  # Scale loss
+            with torch.autograd.profiler.record_function("model"):
+                output = model(image.to(torch.bfloat16)).to(torch.float32)
+            with torch.autograd.profiler.record_function("loss"):
+                loss = criterion(output, target) / args.accumulation_steps  # Scale loss
 
-        if scaler is not None:
-            scaler.scale(loss).backward()
-        else:
-            loss.backward()
+        with torch.autograd.profiler.record_function("backward"):
+            if scaler is not None:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
 
         accumulation_counter += 1
 
-        if accumulation_counter % args.accumulation_steps == 0:
-            if scaler is not None:
-                if args.clip_grad_norm is not None:
-                    scaler.unscale_(optimizer)  # Unscale gradients before clipping
-                    nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                if args.clip_grad_norm is not None:
-                    nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-                optimizer.step()
+        with torch.autograd.profiler.record_function("loss_item"):
+            loss = loss.item()
 
-            optimizer.zero_grad()  # Zero out gradients after optimization step
+        with torch.autograd.profiler.record_function("optimizer"):
+            if accumulation_counter % args.accumulation_steps == 0:
+                if scaler is not None:
+                    if args.clip_grad_norm is not None:
+                        scaler.unscale_(optimizer)  # Unscale gradients before clipping
+                        nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    if args.clip_grad_norm is not None:
+                        nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+                    optimizer.step()
 
-        if model_ema and i % args.model_ema_steps == 0:
-            model_ema.update_parameters(model)
-            if epoch < args.lr_warmup_epochs:
-                model_ema.n_averaged.fill_(0)
+                optimizer.zero_grad()  # Zero out gradients after optimization step
 
-        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-        batch_size = image.shape[0]
-        metric_logger.update(loss=loss.item() * args.accumulation_steps, lr=optimizer.param_groups[0]["lr"])  # Scale back up for logging
-        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
-        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
-        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
+        with torch.autograd.profiler.record_function("ema"):
+            if model_ema and i % args.model_ema_steps == 0:
+                model_ema.update_parameters(model)
+                if epoch < args.lr_warmup_epochs:
+                    model_ema.n_averaged.fill_(0)
+
+        # with torch.autograd.profiler.record_function("metric_logger"):
+        #     acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+        #     batch_size = image.shape[0]
+        #     metric_logger.update(loss=loss * args.accumulation_steps, lr=optimizer.param_groups[0]["lr"])  # Scale back up for logging
+        #     metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+        #     metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+        #     metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
+
+        # if i > 100:
+        #     return
+        #     # if i > 20:
+        #     # if i > 1:
+        #     #     return
+        print(f"i: {i}\r", end='')
+    # We can afford a sync for an accurate time across an entire epoch.
+    torch.cuda.synchronize()
+    # One the first epoch this includes torch.compile time.
+    print(header, "time: ", time.time() - start_time)
         
 
 def apply_sparsity(model):
@@ -192,6 +234,7 @@ def load_data(traindir, valdir, args):
                 random_erase_prob=random_erase_prob,
                 ra_magnitude=ra_magnitude,
                 augmix_severity=augmix_severity,
+                # use_v2=True,
             ),
         )
         if args.cache_dataset:
@@ -273,14 +316,18 @@ def main(args):
         def collate_fn(batch):
             return mixupcutmix(*default_collate(batch))
 
-    data_loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        sampler=train_sampler,
-        num_workers=args.workers,
-        pin_memory=True,
-        collate_fn=collate_fn,
-    )
+    # data_loader = torch.utils.data.DataLoader(
+    #     dataset,
+    #     batch_size=args.batch_size,
+    #     sampler=train_sampler,
+    #     num_workers=args.workers,
+    #     pin_memory=True,
+    #     # collate_fn=collate_fn,
+    # )
+    batch_gen = _get_batch_generator(args, device, dataset.samples)
+    # data_loader = BackgroundTaskProcessor(batch_gen, args.queue_size)
+    # data_loader = BackgroundTaskProcessor(batch_gen, 4)
+
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=args.batch_size, sampler=test_sampler, num_workers=args.workers, pin_memory=True
     )
@@ -453,7 +500,10 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
+        with BackgroundTaskProcessor(batch_gen, 16) as data_loader:
+            # profiler_runner("my_profile.json.gz", train_one_epoch, mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
+            train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
+        import sys; sys.exit(1)
         lr_scheduler.step()
         evaluate(model, criterion, data_loader_test, device=device)
         if model_ema:
@@ -483,6 +533,7 @@ def get_args_parser(add_help=True):
 
     parser = argparse.ArgumentParser(description="PyTorch Classification Training", add_help=add_help)
     parser.add_argument("--data-path", type=str, help="dataset path")
+    parser.add_argument("--train-flist", type=str, help="dataset path")
     parser.add_argument("--model", default="resnet18", type=str, help="model name")
     parser.add_argument("--device", default="cuda", type=str, help="device (Use cuda or cpu Default: cuda)")
     parser.add_argument(
