@@ -98,7 +98,7 @@ class MetricLogger:
     def add_meter(self, name, meter):
         self.meters[name] = meter
 
-    def log_every(self, iterable, print_freq, header=None):
+    def log_every(self, iterable, len_iterable, print_freq, header=None):
         i = 0
         if not header:
             header = ""
@@ -106,7 +106,7 @@ class MetricLogger:
         end = time.time()
         iter_time = SmoothedValue(fmt="{avg:.4f}")
         data_time = SmoothedValue(fmt="{avg:.4f}")
-        space_fmt = ":" + str(len(str(len(iterable)))) + "d"
+        space_fmt = ":" + str(len(str(len_iterable))) + "d"
         if torch.cuda.is_available():
             log_msg = self.delimiter.join(
                 [
@@ -129,13 +129,13 @@ class MetricLogger:
             yield obj
             iter_time.update(time.time() - end)
             if i % print_freq == 0:
-                eta_seconds = iter_time.global_avg * (len(iterable) - i)
+                eta_seconds = iter_time.global_avg * (len_iterable - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
                     print(
                         log_msg.format(
                             i,
-                            len(iterable),
+                            len_iterable,
                             eta=eta_string,
                             meters=str(self),
                             time=str(iter_time),
@@ -146,7 +146,7 @@ class MetricLogger:
                 else:
                     print(
                         log_msg.format(
-                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
+                            i, len_iterable, eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
                         )
                     )
             i += 1
@@ -259,6 +259,7 @@ def init_distributed_mode(args):
 
     args.distributed = True
 
+    print("args.gpu: ", args.gpu)
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
     print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)

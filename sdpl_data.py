@@ -35,11 +35,12 @@ def _init_logging(debug=False, worker_id=None):
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(format=fmt, level=level)
 
-def _get_batch_generator(args, device, path_class_pairs):
-    path_class_pairs = path_class_pairs[:]
-    random.Random(42).shuffle(path_class_pairs)
-    num_demux_threads = 8
-    num_decode_threads = 16
+def _get_batch_generator(args, device, path_class_pairs, indices):
+    indices = indices[:((len(indices) // args.batch_size) * args.batch_size)]
+    path_class_pairs = [path_class_pairs[i] for i in indices]
+    # random.Random(42).shuffle(path_class_pairs)
+    num_demux_threads = 12
+    num_decode_threads = 12
     worker_id = 0
     debug = False
     _init(debug, num_demux_threads, num_decode_threads, worker_id)
@@ -72,7 +73,7 @@ def _get_batch_generator(args, device, path_class_pairs):
                     "filter_desc": "scale=width=256:height=256,crop=224:224,format=rgb24",
                 },
                 convert_options={
-                    "cuda_device_index": 0,
+                    "cuda_device_index": getattr(args, 'gpu', 0),
                     "cuda_allocator": torch.cuda.caching_allocator_alloc,
                     "cuda_deleter": torch.cuda.caching_allocator_delete,
                 },
@@ -97,7 +98,7 @@ def _get_batch_generator(args, device, path_class_pairs):
                     "filter_desc": "scale=width=256:height=256,crop=224:224,format=rgb24",
                 },
                 convert_options={
-                    "cuda_device_index": torch.cuda.current_device(),
+                    "cuda_device_index": getattr(args, 'gpu', 0),
                     "cuda_allocator": torch.cuda.caching_allocator_alloc,
                     "cuda_deleter": torch.cuda.caching_allocator_delete,
                 },
@@ -108,8 +109,8 @@ def _get_batch_generator(args, device, path_class_pairs):
             f.set_result((batch, classes))
             yield f
 
-    # return apply_async(_async_decode_func, srcs_gen)
-    return apply_concurrent(_decode_func, srcs_gen)
+    return apply_async(_async_decode_func, srcs_gen)
+    # return apply_concurrent(_decode_func, srcs_gen)
     # match args.mode:
     #     case "concurrent":
     #         return apply_concurrent(_decode_func, srcs_gen)

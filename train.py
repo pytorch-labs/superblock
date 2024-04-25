@@ -24,6 +24,9 @@ torch.set_num_threads(1)
 from spdl.dataloader._task_runner import BackgroundTaskProcessor
 from sdpl_data import _get_batch_generator
 
+from torch._dynamo.utils import maybe_enable_compiled_autograd
+torch._dynamo.config.optimize_ddp = "python_reducer"
+
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
             activities=[torch.profiler.ProfilerActivity.CPU,
@@ -33,24 +36,27 @@ def profiler_runner(path, fn, *args, **kwargs):
     prof.export_chrome_trace(path)
     return result
 
-def train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None, ):
+def train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, len_data_loader, device, epoch, args, model_ema=None, scaler=None, ):
     model.train()
     # model.module = torch.compile(model.module, mode='reduce-overhead')
     # model = torch.compile(model, mode='max-autotune-no-cudagraphs')
     # model = torch.compile(model)
+
+    # This works
     model = torch.compile(model, mode='max-autotune')
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
     metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
 
     header = f"Epoch: [{epoch}]"
+    print("Starting ", header)
     accumulation_counter = 0  # Counter for tracking accumulated gradients
 
-    # for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-    # We can afford a sync for an accurate time across an entire epoch.
     torch.cuda.synchronize()
     start_time = time.time()
+    max_batches = len_data_loader // args.batch_size
     for i, (image, target) in enumerate(data_loader):
+    # for i, (image, target) in enumerate(metric_logger.log_every(data_loader, len_data_loader // args.batch_size, args.print_freq, header)):
         with torch.autograd.profiler.record_function("data transfer"):
             # image = data[0]
             # target = data[1]
@@ -74,8 +80,8 @@ def train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, devic
 
         accumulation_counter += 1
 
-        with torch.autograd.profiler.record_function("loss_item"):
-            loss = loss.item()
+        # with torch.autograd.profiler.record_function("loss_item"):
+        #     loss = loss.item()
 
         with torch.autograd.profiler.record_function("optimizer"):
             if accumulation_counter % args.accumulation_steps == 0:
@@ -106,15 +112,13 @@ def train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, devic
         #     metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         #     metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
 
-        # if i > 100:
+        # if i > 300:
         #     return
         #     # if i > 20:
         #     # if i > 1:
         #     #     return
-        print(f"i: {i}\r", end='')
-    # We can afford a sync for an accurate time across an entire epoch.
+        print(f"i: {i:5d}/{max_batches}\r", end='')
     torch.cuda.synchronize()
-    # One the first epoch this includes torch.compile time.
     print(header, "time: ", time.time() - start_time)
         
 
@@ -156,9 +160,10 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = f"Test: {log_suffix}"
 
+    print("Starting evaluate")
     num_processed_samples = 0
     with torch.inference_mode():
-        for image, target in metric_logger.log_every(data_loader, print_freq, header):
+        for image, target in metric_logger.log_every(data_loader, len(data_loader), print_freq, header):
             image = image.to(device, non_blocking=True).to(torch.bfloat16)
             target = target.to(device, non_blocking=True)
             output = model(image).to(torch.float32)
@@ -324,7 +329,9 @@ def main(args):
     #     pin_memory=True,
     #     # collate_fn=collate_fn,
     # )
-    batch_gen = _get_batch_generator(args, device, dataset.samples)
+    train_sampler_list = list(train_sampler)
+    # torch.distributed.barrier()
+    # print(f"{args.gpu}: {len(train_sampler_list)}")
     # data_loader = BackgroundTaskProcessor(batch_gen, args.queue_size)
     # data_loader = BackgroundTaskProcessor(batch_gen, 4)
 
@@ -342,19 +349,19 @@ def main(args):
     if args.sparsify_weights and not args.test_only:
         raise ValueError("--sparsify-weights can only be used when --test-only is also specified.")
 
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=True,
-    )
+    # apply_supermask(
+    #     model,
+    #     linear_sparsity=args.sparsity_linear,
+    #     linear_sp_tilesize=args.sp_linear_tile_size,
+    #     conv1x1_sparsity=args.sparsity_conv1x1,
+    #     conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+    #     conv_sparsity=args.sparsity_conv,
+    #     conv_sp_tilesize=args.sp_conv_tile_size,
+    #     skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+    #     skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+    #     device=device,
+    #     verbose=True,
+    # )
 
     model = model.to(torch.bfloat16)
     model.to(device)
@@ -432,7 +439,7 @@ def main(args):
 
     model_without_ddp = model
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu]) #, find_unused_parameters=True)
         model_without_ddp = model.module
 
     model_ema = None
@@ -500,10 +507,11 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        with BackgroundTaskProcessor(batch_gen, 16) as data_loader:
-            # profiler_runner("my_profile.json.gz", train_one_epoch, mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
-            train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
-        import sys; sys.exit(1)
+        batch_gen = _get_batch_generator(args, f"{device}:{getattr(args, 'gpu', 0)}", dataset.samples, train_sampler_list)
+        with BackgroundTaskProcessor(batch_gen, 12) as data_loader:
+            with maybe_enable_compiled_autograd(True):
+                # profiler_runner("my_profile.json.gz", train_one_epoch, mixupcutmix, model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
+                train_one_epoch(mixupcutmix, model, criterion, optimizer, data_loader, len(train_sampler_list), device, epoch, args, model_ema, scaler)
         lr_scheduler.step()
         evaluate(model, criterion, data_loader_test, device=device)
         if model_ema:
