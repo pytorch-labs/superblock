@@ -1,3 +1,5 @@
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+
 import copy
 import datetime
 import errno
