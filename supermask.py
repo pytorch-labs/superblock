@@ -1,3 +1,5 @@
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+
 import torch.nn as nn
 import math
 import torch
