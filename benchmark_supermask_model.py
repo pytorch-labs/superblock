@@ -1,3 +1,5 @@
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+
 import torch
 import torchvision.models as models
 import torch.utils.benchmark as benchmark
