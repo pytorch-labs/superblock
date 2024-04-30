@@ -25,6 +25,7 @@ To train the model or evaluate accuracy, you will need:
 * Clone this repo
   ```
   git clone https://github.com/pytorch-labs/superblock.git
+  cd superblock
   ```
 * Create a new conda environment
   ```
@@ -76,9 +77,15 @@ Please refer to the `get_args_parser` function in [train.py](train.py) for a ful
 
 ## Pretrained Weights
 
-Instead of training from scratch, if you'd like to use the pretrained Supermask weights of `vit_b_16`, you can download them from here:
+Instead of training from scratch, if you'd like to use the pretrained Supermask weights of `vit_b_16`, you can download them:
+```
+mkdir checkpoints
+# 80% sparsity, block size 32
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/raw/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
+# 80% sparsity, block size 64
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/raw/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
+```
 
-***INSERT LINK HERE***
 
 ## Evaluation
 
