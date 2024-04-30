@@ -82,9 +82,9 @@ Instead of training from scratch, if you'd like to use the Supermask weights of 
 ```
 mkdir checkpoints
 # 80% sparsity, block size 32
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/raw/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
 # 80% sparsity, block size 64
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/raw/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
 ```
 
 
