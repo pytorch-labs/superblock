@@ -30,10 +30,11 @@ To train the model or evaluate accuracy, you will need:
 * Create a new conda environment
   ```
   conda create -n superblock
+  conda activate superblock
   ```
 * Install PyTorch Nightly
   ```
-  conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch-nightly -c nvidia
+  conda install pytorch==2.3.0 torchvision==0.18 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
   ```
 
 ## Training
