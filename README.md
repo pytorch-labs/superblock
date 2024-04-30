@@ -62,7 +62,7 @@ To apply supermask, we have the following arguments at our disposal,
     --skip-first-transformer-sparsity
     ```
 
-For example, if you would like to train a `vit_b_16` from scratch using supermask, you can use the respective torchvision command found in [TRAINING.md](TRAINING.md) and append the supermask arguments:
+For example, if you would like to train a `vit_b_16` from scratch using Supermask, you can use the respective torchvision command found in [TRAINING.md](TRAINING.md) and append the supermask arguments:
 ```
 torchrun --nproc_per_node=8 train.py\
     --model vit_b_16 --epochs 300 --batch-size 512 --opt adamw --lr 0.003 --wd 0.3\
@@ -77,7 +77,7 @@ Please refer to the `get_args_parser` function in [train.py](train.py) for a ful
 
 ## Pretrained Weights
 
-Instead of training from scratch, if you'd like to use the pretrained Supermask weights of `vit_b_16`, you can download them:
+Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them:
 ```
 mkdir checkpoints
 # 80% sparsity, block size 32
@@ -99,7 +99,7 @@ To run an evaluation of a Supermask-trained model, you can use [evaluate.py](eva
 
 * Online sparsification without BSR:
   ```
-  torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth --data-path /path/to/imagenet
+  torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model.pth --data-path /path/to/imagenet
   ```
   This is similar to the previous command, but it does not apply offline sparsification or BSR conversion. Instead, the sparsity is applied on-the-fly during evaluation.
 
