@@ -120,4 +120,4 @@ Please refer to the `get_args_parser` function in [evaluate.py](evaluate.py) for
 
 
 ## License
-***INSERT LICENSE DETAILS HERE***
+SuperBlock is released under the [MIT license](https://github.com/pytorch-labs/superblock?tab=MIT-1-ov-file#readme).
