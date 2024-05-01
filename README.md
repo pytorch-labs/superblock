@@ -34,54 +34,37 @@ To train the model or evaluate accuracy, you will need:
   ```
 * Install PyTorch Nightly
   ```
-  conda install pytorch==2.3.0 torchvision==0.18 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+  conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch-nightly -c nvidia
   ```
-* Install other requirements
-  ```
-  conda install scipy
-  ```
+
 
 ## Benchmarking
 Baseline:
 ```
-python benchmark.py --model vit_b_16 \
-  --batch-size 32 \
-  --weights IMAGENET1K_V1 \
-   > /dev/null
+python benchmark.py \
+  --model vit_b_16 \
+  --batch-size 256 \
+  > /dev/null
 ```
 Result:
 ```
-69.8949951171875
+535.5450390625
 ```
 
-80% sparsity pretrained weights:
-```
-python benchmark.py --model vit_b_16 \
-  --batch-size 32 \
-  --sparsity-linear 0.8 \
-  --sp-linear-tile-size 64 \
-  --sparsify-weights \
-  --bsr 64 \
-  --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts64.pth \
-   > /dev/null
-```
-Result:
-```
-90.155048828125
-```
 
 80% sparsity random weights
 ```
 python benchmark.py --model vit_b_16 \
-  --batch-size 32 \
+  --batch-size 256 \
   --sparsity-linear 0.8 \
   --sp-linear-tile-size 64 \
   --sparsify-weights \
-  --bsr 64 > /dev/null
+  --bsr 64 \
+  > /dev/null
 ```
 Result:
 ```
-96.484990234375
+393.5461328125
 ```
 
 
@@ -173,11 +156,43 @@ wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/resolve/mai
 wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
 ```
 
-Evaluate:
+Benchmark:
+80% sparsity, block size 64
 ```
-torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.8 --sp-linear-tile-size 64 --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts32.pth --data-path /path/to/imagenet
+python benchmark.py --model vit_b_16 \
+  --batch-size 256 \
+  --sparsity-linear 0.8 \
+  --sp-linear-tile-size 64 \
+  --sparsify-weights \
+  --bsr 64 \
+  --weights-path ./checkpoints/superblock-vit-b-16-sp0.80-ts64.pth \
+  > /dev/null
+```
+Result:
+```
+394.2301953125
 ```
 
+Evaluate:
+80% sparsity, block size 32
+```
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.8 --sp-linear-tile-size 32 --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts32.pth --data-path /path/to/imagenet
+```
+Results (1x A100):
+```
+  Test:  Total time: X
+  Test:  Acc@1 78.040 Acc@5 93.756
+```
+
+80% sparsity, block size 64
+```
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.8 --sp-linear-tile-size 64 --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts64.pth --data-path /path/to/imagenet
+```
+Results (1x A100):
+```
+  Test:  Total time: X
+  Test:  Acc@1 77.998 Acc@5 93.694
+```
 
 ## License
 SuperBlock is released under the [MIT license](https://github.com/pytorch-labs/superblock?tab=MIT-1-ov-file#readme).

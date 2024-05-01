@@ -5,7 +5,6 @@ import math
 import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
-from scipy.linalg import hadamard
 import numpy as np
 
 
