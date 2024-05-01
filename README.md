@@ -36,6 +36,54 @@ To train the model or evaluate accuracy, you will need:
   ```
   conda install pytorch==2.3.0 torchvision==0.18 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
   ```
+* Install other requirements
+  ```
+  conda install scipy
+  ```
+
+## Benchmarking
+Baseline:
+```
+python benchmark.py --model vit_b_16 \
+  --batch-size 32 \
+  --weights IMAGENET1K_V1 \
+   > /dev/null
+```
+Result:
+```
+69.8949951171875
+```
+
+80% sparsity pretrained weights:
+```
+python benchmark.py --model vit_b_16 \
+  --batch-size 32 \
+  --sparsity-linear 0.8 \
+  --sp-linear-tile-size 64 \
+  --sparsify-weights \
+  --bsr 64 \
+  --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts64.pth \
+   > /dev/null
+```
+Result:
+```
+90.155048828125
+```
+
+80% sparsity random weights
+```
+python benchmark.py --model vit_b_16 \
+  --batch-size 32 \
+  --sparsity-linear 0.8 \
+  --sp-linear-tile-size 64 \
+  --sparsify-weights \
+  --bsr 64 > /dev/null
+```
+Result:
+```
+96.484990234375
+```
+
 
 ## Training
 Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [Torchvision](https://github.com/pytorch/vision/tree/main/references/classification) as our framework for training. Supermask can be applied during training.

@@ -77,6 +77,7 @@ def main(args):
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
+
     apply_supermask(
         model,
         linear_sparsity=args.sparsity_linear,
@@ -90,9 +91,16 @@ def main(args):
         device=device,
         verbose=True,
     )
+
+    if args.weights_path:
+        try:
+            checkpoint = torch.load(args.weights_path, map_location="cpu")
+            model.load_state_dict(checkpoint["model"])
+            print(f"Loaded checkpoint successfully from: {args.weights_path}")
+        except FileNotFoundError:
+            print(f"No checkpoint found at {args.weights_path}. Starting training from scratch.")
+
     model.to(device)
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
-    model_without_ddp = model
 
     if args.bfloat16:
         print("Using bfloat16")
@@ -119,20 +127,13 @@ def get_args_parser(add_help=True):
     parser.add_argument(
         "-b", "--batch-size", default=32, type=int, help="images per gpu, the total batch size is $NGPU x batch_size"
     )
-    parser.add_argument(
-        "--sync-bn",
-        dest="sync_bn",
-        help="Use sync batch norm",
-        action="store_true",
-    )
 
     # Mixed precision training parameters
-    parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
-
     parser.add_argument(
         "--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)"
     )
     parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
+    parser.add_argument("--weights-path", type=str, help="path of pretrained weights to load")
 
     # NOTE: sparsity args
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
