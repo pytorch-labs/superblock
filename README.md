@@ -122,19 +122,7 @@ torchrun --nproc_per_node=8 train.py\
 ```
 Through this command, we are training a `vit_b_16` with 90% sparsity to linear layers using 32x32 tiles.
 
-Please refer to the `get_args_parser` function in [train.py](train.py) for a full list of available arguments.
-
-## Pretrained Weights
-
-Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them:
-```
-mkdir checkpoints
-# 80% sparsity, block size 32
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
-# 80% sparsity, block size 64
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
-```
-
+Please `python train.py --help` for a full list of available arguments.
 
 ## Evaluation
 
@@ -154,8 +142,7 @@ To run an evaluation of a Supermask-trained model, you can use [evaluate.py](eva
 
 Please refer to the `get_args_parser` function in [evaluate.py](evaluate.py) for a full list of available arguments.
 
-## Results (1x A100)
-
+Results (1x A100):
 * Sparsity= 0.9, Tile Size = 32, Online Sparsification, BSR = None
   ```
   Test:  Total time: 0:01:47
@@ -173,6 +160,23 @@ Please refer to the `get_args_parser` function in [evaluate.py](evaluate.py) for
   Test:  Total time: 0:01:18
   Test:  Acc@1 76.078 Acc@5 92.654
   ```
+
+## Pretrained Weights
+
+Download:
+Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them:
+```
+mkdir checkpoints
+# 80% sparsity, block size 32
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
+# 80% sparsity, block size 64
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
+```
+
+Evaluate:
+```
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.8 --sp-linear-tile-size 64 --weights-path checkpoints/superblock-vit-b-16-sp0.80-ts32.pth --data-path /path/to/imagenet
+```
 
 
 ## License
