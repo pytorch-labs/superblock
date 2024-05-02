@@ -222,7 +222,7 @@ def main(args):
                 scaler.load_state_dict(checkpoint["scaler"])
             print(f"Loaded checkpoint successfully from: {args.weights_path}")
         except FileNotFoundError:
-            print(f"No checkpoint found at {args.weights_path}. Starting training from scratch.")
+            raise FileNotFoundError(f"No checkpoint found at {args.weights_path}")
 
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
