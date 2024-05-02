@@ -16,10 +16,13 @@ Currently, the BSR format is optimized for Nvidia A100 GPU(s) only.
 
 ## Setup
 To use SuperBlock, you will need
-* [latest PyTorch Nightly](https://pytorch.org/get-started/locally/)
+* [PyTorch](https://pytorch.org/get-started/locally/)
 
 To train the model or evaluate accuracy, you will need:
-* ImageNet2012 dataset
+* ImageNet2012-blurred dataset
+
+At least one GPU:
+* A100 or H100
 
 ## Installation
 * Clone this repo
@@ -32,10 +35,42 @@ To train the model or evaluate accuracy, you will need:
   conda create -n superblock
   conda activate superblock
   ```
-* Install PyTorch Nightly
+* Install PyTorch. For best performance, we recommend `2.3.0.dev20240305+cu121` nightly
   ```
-  conda install pytorch==2.3.0 torchvision==0.18 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+  pip install --pre torch==2.3.0.dev20240305+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121
+  pip install --pre torchvision==0.18.0 --no-deps
   ```
+
+
+## Benchmarking
+Baseline:
+```
+python benchmark.py \
+  --model vit_b_16 \
+  --batch-size 256 \
+  > /dev/null
+```
+Result:
+```
+532.1160546875 ms
+```
+
+
+80% sparsity, block size 64 (random weights):
+```
+python benchmark.py --model vit_b_16 \
+  --batch-size 256 \
+  --sparsity-linear 0.8 \
+  --sp-linear-tile-size 64 \
+  --sparsify-weights \
+  --bsr 64 \
+  > /dev/null
+```
+Result:
+```
+393.864453125 ms
+```
+
 
 ## Training
 Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [Torchvision](https://github.com/pytorch/vision/tree/main/references/classification) as our framework for training. Supermask can be applied during training.
@@ -74,58 +109,107 @@ torchrun --nproc_per_node=8 train.py\
 ```
 Through this command, we are training a `vit_b_16` with 90% sparsity to linear layers using 32x32 tiles.
 
-Please refer to the `get_args_parser` function in [train.py](train.py) for a full list of available arguments.
-
-## Pretrained Weights
-
-Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them:
-```
-mkdir checkpoints
-# 80% sparsity, block size 32
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts32/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts32.pth
-# 80% sparsity, block size 64
-wget https://huggingface.co/facebook/superblock-vit-b-16-sp0.80-ts64/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp0.80-ts64.pth
-```
-
+Please run `python train.py --help` for a full list of available arguments.
 
 ## Evaluation
 
-To run an evaluation of a Supermask-trained model, you can use [evaluate.py](evaluate.py).
+To run an evaluation of a Supermask-trained model, you can use [evaluate.py](evaluate.py). Our current version has signficant speedup with float32 only and not float16, hence, to illustrate speedup, we don't pass `--amp` in the example commands below.
+
+```
+MODEL_PATH=<put the path of the trained checkpoint here>
+IMAGENET_PATH=<put the path of ImageNet dataset here>
+NGPUS=1 # put number of available GPUS here
+```
 
 * Offline sparsification with BSR:
-    ```
-    torchrun --nproc_per_node=8 evaluate.py  --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model_299.pth  --data-path /path/to/imagenet --sparsify-weights --bsr 32
-    ```
-    This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from model_299.pth, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 32. It is recommended to set `--bsr`      the same as tile size.
+  ```
+  torchrun --nproc_per_node=${NGPUS} evaluate.py  --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH}  --data-path ${IMAGENET_PATH} --sparsify-weights --bsr 32
+  ```
+  This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from ${MODEL_PATH}, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 32. It is recommended to set `--bsr`      the same as tile size.
 
 * Online sparsification without BSR:
   ```
-  torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --amp --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path /path/to/model.pth --data-path /path/to/imagenet
+  torchrun --nproc_per_node=${NGPUS} evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH} --data-path ${IMAGENET_PATH}
   ```
   This is similar to the previous command, but it does not apply offline sparsification or BSR conversion. Instead, the sparsity is applied on-the-fly during evaluation.
 
-Please refer to the `get_args_parser` function in [evaluate.py](evaluate.py) for a full list of available arguments.
+Please run `python evaluate.py --help` for a full list of available arguments.
 
-## Results (1x A100)
+Results (1x A100):
+* Baseline
+  ```
+  Test:  Total time: 0:02:11
+  Test:  Acc@1 78.392 Acc@5 93.592
+  ```
 
 * Sparsity= 0.9, Tile Size = 32, Online Sparsification, BSR = None
   ```
-  Test:  Total time: 0:01:47
-  Test:  Acc@1 76.078 Acc@5 92.654
+  Test:  Total time: 0:01:52
+  Test:  Acc@1 76.092 Acc@5 92.656
   ```
 
 * Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = None
   ```
-  Test:  Total time: 0:01:45
-  Test:  Acc@1 76.078 Acc@5 92.654
+  Test:  Total time: 0:01:54
+  Test:  Acc@1 76.092 Acc@5 92.656
   ```
 
 * Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = 32
   ```
-  Test:  Total time: 0:01:18
-  Test:  Acc@1 76.078 Acc@5 92.654
+  Test:  Total time: 0:01:25
+  Test:  Acc@1 76.092 Acc@5 92.656
   ```
 
+## Pretrained Weights
+
+### Download:
+Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them:
+```
+SPARSITY=0.80 # we have 0.70, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90
+BLOCK_SIZE=32 # we have 16, 32, 64
+```
+
+```
+mkdir checkpoints
+wget https://huggingface.co/facebook/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}/resolve/main/pytorch_model.bin -O checkpoints/superblock-vit-b-16-sp$SPARSITY-ts${BLOCK_SIZE}.pth
+```
+
+### Benchmark:
+```
+python benchmark.py --model vit_b_16 \
+  --batch-size 256 \
+  --sparsity-linear ${SPARSITY} \
+  --sp-linear-tile-size ${BLOCK_SIZE} \
+  --sparsify-weights \
+  --bsr ${BLOCK_SIZE} \
+  --weights-path ./checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
+  > /dev/null
+```
+Result:
+```
+530.342578125 ms
+```
+
+### Evaluate:
+8 x A100 GPUs:
+```
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+```
+Result:
+```
+Test:  Total time: 0:01:01
+Test:  Acc@1 77.644 Acc@5 93.554
+```
+
+1 x A100 GPUs:
+```
+torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+```
+Result:
+```
+Test:  Total time: 0:01:51
+Test:  Acc@1 77.644 Acc@5 93.554
+```
 
 ## License
 SuperBlock is released under the [MIT license](https://github.com/pytorch-labs/superblock?tab=MIT-1-ov-file#readme).

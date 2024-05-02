@@ -23,11 +23,11 @@ def apply_sparsity(model):
             module.sparsify_offline()
 
 
-def apply_bsr(model):
+def apply_bsr(model, blocksize):
     for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear) and "mlp" in name:
                 try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
+                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, blocksize))
                     print(f"Converted {name} to bsr format.")
                 except ValueError as e:
                     print(f"Unable to convert weight of {name} to bsr format: {e}")
@@ -75,8 +75,20 @@ def main(args):
     torch.backends.cudnn.deterministic = True
     num_classes = 1000
 
+    dtype = None
+    if args.bfloat16:
+        print("Using bfloat16")
+        dtype = torch.bfloat16
+    elif args.float16:
+        print("Using float16")
+        dtype = torch.float16
+
+    # Sample input
+    # input = torch.rand(32, 3, 224, 224, dtype=dtype).to(device)
+
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
+
     apply_supermask(
         model,
         linear_sparsity=args.sparsity_linear,
@@ -88,26 +100,43 @@ def main(args):
         skip_last_layer_sparsity=args.skip_last_layer_sparsity,
         skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
         device=device,
-        verbose=True,
+        verbose=False,
     )
-    model.to(device)
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
-    model_without_ddp = model
 
-    if args.bfloat16:
-        print("Using bfloat16")
-        model = model.to(torch.bfloat16)
-    if args.bsr and not args.sparsify_weights:
-        raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
+    if args.weights_path:
+        try:
+            checkpoint = torch.load(args.weights_path, map_location="cpu")
+            model.load_state_dict(checkpoint["model"])
+            print(f"Loaded checkpoint successfully from: {args.weights_path}")
+        except FileNotFoundError:
+            raise FileNotFoundError(f"No checkpoint found at {args.weights_path}.")
+
+    model.to(device)
+    # output0 = model(input)
+
     if args.sparsify_weights:
         apply_sparsity(model)
         verify_sparsity(model)
-        if args.bsr:
-            apply_bsr(model)
-    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=torch.bfloat16 if args.bfloat16 else None, device=device)
+
+        # verify correctness
+        # output1 = model(input)
+        # assert torch.allclose(output0, output1), "Output of model before and after weight sparsification should be equal"
+
+    if dtype:
+        model = model.to(dtype)
+
+    if args.bsr:
+        if not args.sparsify_weights:
+            raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
+        apply_bsr(model, blocksize=args.bsr)
+
+        # verify correctness
+        # output2 = model(input)
+        # assert torch.allclose(output2, output1), "Output of model before and after changing format to BSR should be equal"
+
+    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
     # model = torch.compile(model, mode='max-autotune')
-    print(benchmark_in_ms(10, 100, model, image), file=sys.stderr)
-    return
+    return benchmark_in_ms(10, 100, model, image)
 
 
 def get_args_parser(add_help=True):
@@ -119,20 +148,13 @@ def get_args_parser(add_help=True):
     parser.add_argument(
         "-b", "--batch-size", default=32, type=int, help="images per gpu, the total batch size is $NGPU x batch_size"
     )
-    parser.add_argument(
-        "--sync-bn",
-        dest="sync_bn",
-        help="Use sync batch norm",
-        action="store_true",
-    )
 
     # Mixed precision training parameters
-    parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
-
     parser.add_argument(
         "--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)"
     )
     parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
+    parser.add_argument("--weights-path", type=str, help="path of pretrained weights to load")
 
     # NOTE: sparsity args
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
@@ -146,10 +168,12 @@ def get_args_parser(add_help=True):
     parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
+    parser.add_argument("--float16", action="store_true", help="Use float16")
 
     return parser
 
 
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
-    main(args)
+    result = main(args)
+    print(f"{result} ms", file=sys.stderr)

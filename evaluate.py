@@ -222,7 +222,7 @@ def main(args):
                 scaler.load_state_dict(checkpoint["scaler"])
             print(f"Loaded checkpoint successfully from: {args.weights_path}")
         except FileNotFoundError:
-            print(f"No checkpoint found at {args.weights_path}. Starting training from scratch.")
+            raise FileNotFoundError(f"No checkpoint found at {args.weights_path}")
 
     if args.bsr and not args.sparsify_weights:
         raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
@@ -300,7 +300,7 @@ def get_args_parser(add_help=True):
         "--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)"
     )
     parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
-    parser.add_argument("--weights-path", type=str)
+    parser.add_argument("--weights-path", type=str, help="path of pretrained weights to load")
 
     # NOTE: sparsity args
     parser.add_argument("--sparsity-linear", type=float, default=0.0)

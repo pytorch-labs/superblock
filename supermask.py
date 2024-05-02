@@ -5,7 +5,6 @@ import math
 import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
-from scipy.linalg import hadamard
 import numpy as np
 
 
@@ -131,7 +130,7 @@ class SupermaskLinear(nn.Linear):
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift) * subnet
         else:
-            w = self.weight
+            w = self.weight.data
         return F.linear(x, w, self.bias)
     
 
