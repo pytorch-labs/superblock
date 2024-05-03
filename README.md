@@ -165,17 +165,16 @@ Results (1x A100):
 ### Download:
 Instead of training from scratch, if you'd like to use the Supermask weights of `vit_b_16` trained on privacy mitigated Imagenet-blurred, you can download them here:
 ```
-Available options:
-SPARSITY = 0.70, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90
-BLOCK_SIZE = 16, 32, 64
+SPARSITY=0.80 # Checkpoints available for: 0.70, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90
+BLOCK_SIZE=32 # Checkpoints available for: 16, 32, 64
 ```
 
 ```
 mkdir checkpoints
 # For baseline,
-wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/baseline.pth
+wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/baseline.pth -P checkpoints/
 # For sparsified checkpoints,
-wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth
+wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth -P checkpoints/
 ```
 
 ### Benchmark:
