@@ -186,7 +186,7 @@ python benchmark.py --model vit_b_16 \
   --sp-linear-tile-size ${BLOCK_SIZE} \
   --sparsify-weights \
   --bsr ${BLOCK_SIZE} \
-  --weights-path ./checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
+  --weights-path ./checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
   > /dev/null
 ```
 Result:
@@ -197,7 +197,7 @@ Result:
 ### Evaluate:
 8 x A100 GPUs:
 ```
-torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
 ```
 Result:
 ```
@@ -207,7 +207,7 @@ Test:  Acc@1 77.644 Acc@5 93.554
 
 1 x A100 GPUs:
 ```
-torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/superblock-vit-b-16-sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
 ```
 Result:
 ```
