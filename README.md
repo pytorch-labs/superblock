@@ -1,3 +1,5 @@
+**_SuperBlock has now been transferred to torchao repo [here](https://github.com/pytorch/ao/tree/main/torchao/sparsity/prototype/superblock)._**
+
 # SuperBlock
 
 SuperBlock combines two techniques for efficient neural network training and inference: Supermask and Block Compressed Sparse Row (BSR). 
